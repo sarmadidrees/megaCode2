@@ -75,6 +75,13 @@ unsigned long pM = 0; //previous millis
 boolean rotateActive = false;
 uint8_t agay = 0;
 
+//for sonar values
+int front=0;
+int right=0;
+int back=0;
+int left=0;
+
+
 void setup(void) {
   
  Serial.begin(115200); 
@@ -109,10 +116,6 @@ void setup(void) {
   inputString2.reserve(100);
   recvString.reserve(100);
   command.reserve(100);
-  
- /* prevHeading = frontAngle;
-  newHeading = leftAngle;*/
-  //TOD: add setpoint later
 
   Astar.initNodes();    //initializing A* path finding
 }
@@ -125,9 +128,7 @@ void loop(void) {
   readData();
   findONLYAngle();
   Serial.println(headingAngle);
-*/
-
-//unsigned long cM = millis(); 
+*/ 
 
 if(followPath){
   if(Astar.pathFound()){
@@ -149,8 +150,8 @@ if(followPath){
                 //if(noObstacle){
                 //if(wiat is not ON)
                 if(agay == 0){
-                sendStraightCommand();
-                agay = 1;
+                  sendStraightCommand();
+                  agay = 1;
                 }
                 //else if (obstacle){ tell that there is obstacle and wait for command }
               }
@@ -196,7 +197,6 @@ if (rotateActive){
 }
   
   nRF_receive();
-//  serial_receive();
 
   if(stringComplete3) { 
     nrf_send(inputString3);
@@ -249,19 +249,46 @@ void interperetMotorSerial(){
 }
 
 void interperetSonarSerial(){
-  
+
+  if(inputString2.startsWith("SONAR,D,")){
+    COMMAND: SONAR,D,color,front,right,back,left,X\n
+    int val1,val2;
+    int val3,val4;
+    int c1=1, c2=1; 
+    
+    recvString.substring(7);
+
+    c1 = recvString.indexOf(',')+1;
+    c2 = recvString.indexOf(',',c1);
+    val1 = recvString.substring(c1,c2).toInt();
+    
+    c1 = c2+1;
+    c2 = recvString.indexOf(',',c1);
+    val2 = recvString.substring(c1,c2).toInt();
+    
+    c1 = c2+1;
+    c2 = recvString.indexOf(',',c1);
+    val3 = recvString.substring(c1,c2).toInt();
+    
+    c1 = c2+1;
+    c2 = recvString.indexOf(',',c1);
+    val4 = recvString.substring(c1,c2).toInt();
+
+    front = val1;
+    right = val2;
+    back = val3;
+    left = val4;
+  }
 }
 
 void nRF_receive(void) {
   int len = 0;
   if ( radio.available() ) {
-
-        bool done = false;
-        
-        len = radio.getDynamicPayloadSize();
-        radio.read(&RecvPayload,len);
-        delay(20);
-        
+    
+    len = radio.getDynamicPayloadSize();
+    radio.read(&RecvPayload,len);
+    delay(20);
+    
     RecvPayload[len] = 0; // null terminate string
     
     Serial.print("R:");
@@ -270,15 +297,11 @@ void nRF_receive(void) {
     recvString = String(RecvPayload);
    
     if(recvString.startsWith("PATH")){
-      //Command: PATH,currentX,currentY,endX,endY   //wrt actual plan
-      
-     // recvString = recvString.substring(5);
       planPath();
-      //TODO: bool wala stuff k kis ko TRUE karna ha aur kis ko FALSE
     }
    
- else if(recvString.startsWith("M")){
-      if(recvString[2] == 'G'){
+    else if(recvString.startsWith("M")){
+        if(recvString[2] == 'G'){
           readData();
           findHeadingAngle();
        
@@ -337,14 +360,12 @@ void planPath(){
 
   Astar.Flush();
   Astar.findPath(cX,cY,eX,eY);
-  Serial.println("aa");
-  Serial.print(cX);Serial.print(",");Serial.print(cY);Serial.print(",");
-  Serial.print(eX);Serial.print(",");Serial.println(eY);
-  Serial.println(Astar.stepCount());
+  
   followPath = true;
   doneRotate = true;
   doneStraight = true;
   counti = 0;
+  agay = 0;
   
   readData();
   findHeadingAngle();
@@ -464,64 +485,6 @@ void sendStraightCommand(){
   Serial.print("C,S\n");
 }
 
-void serial_receive(void){
-  
-  if (stringComplete2) { 
-        /*// swap TX & Rx addr for writing
-        inputString2.toCharArray(SendPayload,31);
-        radio.openWritingPipe(pipes[1]);
-        radio.openReadingPipe(0,pipes[0]);  
-        radio.stopListening();
-       // radio.write(inputString2.c_str(),inputString2.length());
-        radio.write(&SendPayload,strlen(SendPayload));
-        
-        Serial.print("S:");  
-        //Serial.print(inputString2);
-        Serial.println(SendPayload);          
-        Serial.println();
-        
-        // restore TX & Rx addr for reading  
-             
-        radio.openWritingPipe(pipes[0]);
-        radio.openReadingPipe(1,pipes[1]);
-        radio.startListening();
-        */
-
-        nrf_send(inputString2);
-        stringComplete2 = false;  
-        inputString2 = "";
-  } // endif
-
-    if (stringComplete3) { 
-        // swap TX & Rx addr for writing
-        /*
-        radio.openWritingPipe(pipes[1]);
-        radio.openReadingPipe(0,pipes[0]);  
-        radio.stopListening();
-        radio.write(inputString3.c_str(),inputString3.length());
-        
-        Serial.print("S:");  
-        Serial.print(inputString3);          
-        Serial.println();
-        */
-
-        nrf_send(inputString3);
-        
-        
-        
-        stringComplete3 = false;
-       
-        // restore TX & Rx addr for reading  
-        /*     
-        radio.openWritingPipe(pipes[0]);
-        radio.openReadingPipe(1,pipes[1]);
-        radio.startListening();
-        */  
-        inputString3 = "";
-  } // endif
-} // end serial_receive()
-
-
 /********** Functions for MAGNETO-METER ***********/
 void initMagnetoMeter(){
 
@@ -639,5 +602,9 @@ void nrf_send(String input){
     radio.openWritingPipe(pipes[0]);
     radio.openReadingPipe(1,pipes[1]);
     radio.startListening();
+}
+
+void pickBox(){
+  
 }
 
