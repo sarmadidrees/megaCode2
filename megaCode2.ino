@@ -45,14 +45,16 @@ bool stringComplete2 = false;
    ******************************************************/
    
 #define frontAngle         135
-#define rightAngle         74
-#define backAngle          350
-#define leftAngle          200
+#define rightAngle         42
+#define backAngle          316
+#define leftAngle          230
 #define Error              25       //error is changed for ROTATE (please change it for localization)
 
 float    magneticX, magneticY, magneticZ;
 float    headingAngle;
 float    SetpointHeading;
+float    errorH;
+float    prevH, newH;
 char     orientation;
 
 unsigned long previousMillis = 0;
@@ -76,10 +78,18 @@ boolean rotateActive = false;
 uint8_t agay = 0;
 
 //for sonar values
-int front=0;
-int right=0;
-int back=0;
-int left=0;
+int frontS=0;
+int rightS=0;
+int backS=0;
+int leftS=0;
+const int obstacleLength = 20;
+
+boolean recieved=false;
+boolean asked=false;
+
+boolean left = false;
+boolean right = false;
+int change = 0;
 
 
 void setup(void) {
@@ -128,7 +138,7 @@ void loop(void) {
   readData();
   findONLYAngle();
   Serial.println(headingAngle);
-*/ 
+ */
 
 if(followPath){
   if(Astar.pathFound()){
@@ -139,21 +149,30 @@ if(followPath){
           if (orientation == expectOrien){
             if(Astar.stepCount()>counti){
               if(doneStraight){
-                makeCommand();
-                sendCommand();
-                counti++;
                 doneRotate = false;
                 doneStraight = false;
+                makeCommand();
+                sendCommand();
+                findNewH();
+                counti++;
               }
               else if (!doneStraight){
                 //TODO: is jaga aye k front sonar pe kuch hai ya nahi?
                 //if(noObstacle){
                 //if(wiat is not ON)
-                if(agay == 0){
-                  sendStraightCommand();
-                  agay = 1;
+                if(!asked){
+                  askForData();
+                  asked = true;
+                  recieved = false;
                 }
-                //else if (obstacle){ tell that there is obstacle and wait for command }
+                if(recieved){
+                  if(noObstacle()){
+                    if(agay == 0){
+                      sendStraightCommand();
+                      agay = 1;
+                    }
+                  }//else if (obstacle){ tell that there is obstacle and wait for command }
+                }
               }
             }
             else{
@@ -183,10 +202,11 @@ if (rotateActive){
   if (currentMillis - previousMillis >= interval) {
     previousMillis = currentMillis;
     readData();
-    findHeadingAngle();
+    findONLYAngle();
+    findSetpointH();
 
   Serial3.print("H,");
-  Serial3.print(headingAngle);
+  Serial3.print(errorH);
   Serial3.print(",");
   Serial3.println(SetpointHeading);
   
@@ -244,6 +264,8 @@ void interperetMotorSerial(){
   else if (inputString3.startsWith("STRAIGHT")){ 
     doneStraight = true;
     agay = 0;
+    asked = false;
+    recieved = false;
   }
   else if (inputString3.startsWith("ROTATE")) doneRotate = true;
 }
@@ -251,12 +273,12 @@ void interperetMotorSerial(){
 void interperetSonarSerial(){
 
   if(inputString2.startsWith("SONAR,D,")){
-    COMMAND: SONAR,D,color,front,right,back,left,X\n
+   // COMMAND: SONAR,D,color,front,right,back,left,X\n
     int val1,val2;
     int val3,val4;
     int c1=1, c2=1; 
     
-    recvString.substring(7);
+    recvString.substring(8);
 
     c1 = recvString.indexOf(',')+1;
     c2 = recvString.indexOf(',',c1);
@@ -274,13 +296,19 @@ void interperetSonarSerial(){
     c2 = recvString.indexOf(',',c1);
     val4 = recvString.substring(c1,c2).toInt();
 
-    front = val1;
-    right = val2;
-    back = val3;
-    left = val4;
+    frontS = val1;
+    rightS = val2;
+    backS = val3;
+    leftS = val4;
+  
+    recieved = true;
   }
 }
 
+bool noObstacle(){
+  if(frontS>obstacleLength) return true;
+  else return false;
+}
 void nRF_receive(void) {
   int len = 0;
   if ( radio.available() ) {
@@ -302,9 +330,22 @@ void nRF_receive(void) {
    
     else if(recvString.startsWith("M")){
         if(recvString[2] == 'G'){
+          if(recvString[4] == 'L') {
+            left = true;
+            right = false;
+          }
+          else if(recvString[4] == 'R'){
+            left = false;
+            right = true; 
+          }
+          
+          if(recvString[5] == '1') change = 1;
+          else if(recvString[5] == '2') change = 2; 
+          
           readData();
           findHeadingAngle();
-       
+          findNewH();
+          
           rotateActive = true;
           recvString = recvString.substring(2);
           Serial3.println(recvString);
@@ -380,20 +421,32 @@ void makeCommand(){
           if((Astar.finalPath[counti].X + 1) == Astar.finalPath[counti + 1].X){
             command = "C,X\n";
             expectOrien = 'N';
+            change = 0;
+            left = false;
+            right = false;
           }
           else if((Astar.finalPath[counti].X - 1) == Astar.finalPath[counti + 1].X){
             command = "C,L2\n";
             expectOrien = 'S';
+            change = 2;
+            left = true;
+            right = false;
           }
         }
         else if(Astar.finalPath[counti].X == Astar.finalPath[counti + 1].X){
             if((Astar.finalPath[counti].Y + 1) == Astar.finalPath[counti + 1].Y){
               command = "C,R1\n";
               expectOrien = 'E';
+              change = 1;
+              left = false;
+              right = true;
             }
             else if((Astar.finalPath[counti].Y - 1) == Astar.finalPath[counti + 1].Y){
               command = "C,L1\n";
               expectOrien = 'W';
+              change = 1;
+              left = true;
+              right = false;
             }
         }
       break;
@@ -403,20 +456,32 @@ void makeCommand(){
           if((Astar.finalPath[counti].X + 1) == Astar.finalPath[counti + 1].X){
             command = "C,L1\n";
             expectOrien = 'N';
+            change = 1;
+            left = true;
+            right = false;
           }
           else if((Astar.finalPath[counti].X - 1) == Astar.finalPath[counti + 1].X){
             command = "C,R1\n";
             expectOrien = 'S';
+            change = 1;
+            left = false;
+            right = true;
           }
         }
         else if(Astar.finalPath[counti].X == Astar.finalPath[counti + 1].X){
             if((Astar.finalPath[counti].Y + 1) == Astar.finalPath[counti + 1].Y){
               command = "C,X\n";
               expectOrien = 'E';
+              change = 0;
+              left = false;
+              right = false;
             }
             else if((Astar.finalPath[counti].Y - 1) == Astar.finalPath[counti + 1].Y){
               command = "C,L2\n";
               expectOrien = 'W';
+              change = 2;
+              left = true;
+              right = false;
             }
         }
       break;
@@ -426,20 +491,32 @@ void makeCommand(){
           if((Astar.finalPath[counti].X + 1) == Astar.finalPath[counti + 1].X){
             command = "C,L2\n";
             expectOrien = 'N';
+            change = 2;
+            left = true;
+            right = false;
           }
           else if((Astar.finalPath[counti].X - 1) == Astar.finalPath[counti + 1].X){
             command = "C,X\n";
             expectOrien = 'S';
+            change = 0;
+            left = false;
+            right = false;
           }
         }
         else if(Astar.finalPath[counti].X == Astar.finalPath[counti + 1].X){
             if((Astar.finalPath[counti].Y + 1) == Astar.finalPath[counti + 1].Y){
               command = "C,L1\n";
               expectOrien = 'E';
+              change = 1;
+              left = true;
+              right = false;
             }
             else if((Astar.finalPath[counti].Y - 1) == Astar.finalPath[counti + 1].Y){
               command = "C,R1\n";
               expectOrien = 'W';
+              change = 1;
+              left = false;
+              right = true;
             }
         }
       break;
@@ -449,20 +526,32 @@ void makeCommand(){
           if((Astar.finalPath[counti].X + 1) == Astar.finalPath[counti + 1].X){
             command = "C,R1\n";
             expectOrien = 'N';
+            change = 1;
+            left = false;
+            right = true;
           }
           else if((Astar.finalPath[counti].X - 1) == Astar.finalPath[counti + 1].X){
             command = "C,L1\n";
             expectOrien = 'S';
+            change = 1;
+            left = true;
+            right = false;
           }
         }
         else if(Astar.finalPath[counti].X == Astar.finalPath[counti + 1].X){
             if((Astar.finalPath[counti].Y + 1) == Astar.finalPath[counti + 1].Y){
               command = "C,L2\n";
               expectOrien = 'E';
+              change = 2;
+              left = true;
+              right = false;
             }
             else if((Astar.finalPath[counti].Y - 1) == Astar.finalPath[counti + 1].Y){
               command = "C,X\n";
               expectOrien = 'W';
+              change = 0;
+              left = false;
+              right = false;
             }
         }
       break;
@@ -485,6 +574,9 @@ void sendStraightCommand(){
   Serial.print("C,S\n");
 }
 
+void askForData(){
+  Serial2.println("D");
+}
 /********** Functions for MAGNETO-METER ***********/
 void initMagnetoMeter(){
 
@@ -549,23 +641,23 @@ void findHeadingAngle(){
    // Convert radians to degrees for readability.
    headingAngle = (heading * 180)/(PI);
 
-   if ((headingAngle >= 0) && (headingAngle <= Error + 10)){
+   if ((headingAngle >= 0) && (headingAngle <=  20)){
       headingAngle += 360;  
    }
    
    // For Orientation
    if ( (headingAngle <= frontAngle + Error) && (headingAngle >= frontAngle - Error) )
           { orientation = 'N'; 
-          SetpointHeading = frontAngle;}
+            prevH = frontAngle;}
    else if ( (headingAngle <= rightAngle + Error) && (headingAngle >= rightAngle - Error) )
            { orientation = 'E'; 
-           SetpointHeading = rightAngle;}
+             prevH = rightAngle;}
    else if ( (headingAngle <= backAngle + Error) && (headingAngle >= backAngle - Error) )
            { orientation = 'S'; 
-           SetpointHeading = backAngle;}
+             prevH = backAngle;}
    else if ( (headingAngle <= leftAngle + Error) && (headingAngle >= leftAngle - Error) )
            { orientation = 'W'; 
-           SetpointHeading = leftAngle;}
+             prevH = leftAngle;}
    else 
    orientation = 'U';     
 }
@@ -584,6 +676,72 @@ void findONLYAngle(){
    // Convert radians to degrees for readability.
    headingAngle = (heading * 180)/(PI);
 }
+
+void findNewH(){
+  switch(orientation){
+    case 'N':
+      if(left && (change == 1)) newH = leftAngle;
+      else if(left && (change == 2)) newH = backAngle;
+      else if(right && (change == 1)) newH = rightAngle;
+      else if(change == 0) newH = frontAngle;
+    break;
+
+    case 'E':
+      if(left && (change == 1)) newH = frontAngle;
+      else if(left && (change == 2)) newH = leftAngle;
+      else if(right && (change == 1)) newH = backAngle;
+      else if(change == 0) newH = rightAngle;
+    break;
+
+    case 'S':
+      if(left && (change == 1)) newH = rightAngle;
+      else if(left && (change == 2)) newH = frontAngle;
+      else if(right && (change == 1)) newH = leftAngle;
+      else if(change == 0) newH = backAngle;
+    break;
+
+    case 'W':
+      if(left && (change == 1)) newH = backAngle;
+      else if(left && (change == 2)) newH = rightAngle;
+      else if(right && (change == 1)) newH = frontAngle;
+      else if(change == 0) newH = leftAngle;
+    break;
+  }
+}
+
+void findSetpointH(){
+  switch (change){
+    case 0:
+      errorH = headingAngle;
+      SetpointHeading = newH;
+    break;
+    
+    case 1:
+        errorH = abs(prevH - headingAngle);
+        SetpointHeading = abs(prevH - newH);
+    
+        if(errorH>170) errorH = 360 - errorH;
+        if(SetpointHeading>170) SetpointHeading = 360 - SetpointHeading;
+    
+    break;
+    
+    case 2:
+        errorH = abs(prevH - headingAngle);
+        SetpointHeading = abs(prevH - newH);
+    
+        if(prevH>newH){
+            SetpointHeading = 360 - SetpointHeading;
+            if((headingAngle>=0) &&(headingAngle<(newH+50)))
+                errorH = 360 - errorH;
+        }
+        else if(prevH<newH){
+            if((headingAngle>=0) &&(headingAngle<(prevH-50)))
+                errorH = 360 - errorH;
+        }
+    break;
+  }
+}
+
 
 void nrf_send(String input){
   

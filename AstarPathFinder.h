@@ -20,7 +20,7 @@
 #define mapX 11
 #define mapY 5
 #define extraX 4
-#define extraY 1
+#define extraY 2
 
 #define pathSize 25
 
